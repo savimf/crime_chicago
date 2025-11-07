@@ -1,5 +1,6 @@
 BRZ_PATH = '../../bronze'
 SLV_PATH = '../../silver'
+GLD_PATH = '../../gold'
 MODEL_PATH = '../../models'
 IMG_PATH = '../../images'
 

@@ -1,3 +1,8 @@
+BRZ_PATH = '../../bronze'
+SLV_PATH = '../../silver'
+MODEL_PATH = '../../models'
+IMG_PATH = '../../images'
+
 COLORS = {
     'THFT': 'dimgrey',
     'ASLT': 'indianred'

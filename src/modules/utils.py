@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from math import radians, cos, sin, asin, sqrt
 from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
@@ -266,3 +268,38 @@ def rolling_grp(
         ]
 
     return rolling
+
+
+# plotting functions
+def gen_paired_hist_box(df: pd.DataFrame, grp: str='ASLT') -> None:
+    cols = df.columns
+    n_cols = len(cols)
+
+    fig, axes = plt.subplots(2, n_cols, figsize=(15, 8), sharey='row')
+
+    # Plot histograms in the upper row
+    for i, col in enumerate(cols):
+        sns.histplot(
+            data=df,
+            x=col,
+            ax=axes[0, i],
+            kde=True,
+            color=colors.get(grp)
+        )
+        axes[0, i].set_title(f'{col} Distribution')
+        axes[0, i].set_xlabel('')
+        axes[0, i].set_xticks([])
+        axes[0, i].spines[['top', 'right', 'left']].set_visible(False)
+
+    # Plot boxplots in the lower row
+    for i, col in enumerate(cols):
+        sns.boxplot(
+            data=df,
+            x=col,
+            ax=axes[1, i],
+            color=colors.get(grp)
+        )
+        axes[1, i].set_title('')
+        axes[1, i].set_ylabel('')
+        axes[1, i].set_xlabel('')
+        axes[1, i].spines[['top', 'right', 'bottom', 'left']].set_visible(False)

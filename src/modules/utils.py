@@ -5,6 +5,8 @@ import seaborn as sns
 from math import radians, cos, sin, asin, sqrt
 from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 import params_cfg as pc
 
 brz_path = pc.BRZ_PATH
@@ -303,3 +305,20 @@ def gen_paired_hist_box(df: pd.DataFrame, grp: str='ASLT') -> None:
         axes[1, i].set_ylabel('')
         axes[1, i].set_xlabel('')
         axes[1, i].spines[['top', 'right', 'bottom', 'left']].set_visible(False)
+
+
+def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
+    sse = []
+    silhouettes = []
+    for k in k_values:
+        print(f'Initiating {k=}')
+        kmeans = KMeans(n_clusters=k, random_state=1, n_init='auto')
+        kmeans.fit(x)
+        sse.append(kmeans.inertia_)
+        silhouettes.append(silhouette_score(x, kmeans.labels_))
+
+    return {
+        'sse': sse,
+        'silhouettes': silhouettes,
+    }
+

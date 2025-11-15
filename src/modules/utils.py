@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from math import radians, cos, sin, asin, sqrt
+from math import radians, cos, sin, asin, sqrt, log1p
 from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
 from sklearn.cluster import KMeans
@@ -307,7 +307,43 @@ def gen_paired_hist_box(df: pd.DataFrame, grp: str='ASLT') -> None:
         axes[1, i].spines[['top', 'right', 'bottom', 'left']].set_visible(False)
 
 
+def rm_outliers(df: pd.DataFrame, cols: list=[], s: float=1.5) -> pd.DataFrame:
+    """
+    Receives an input dataframe and outputs another dataframe with its outliers removed. They
+    are calculated based on the Interquartile Range (IQR) method and considers only the specified columns.
+    The parameter 's' is a scaling factor for the IQR to define the bounds for:
+
+    IQR = Q3 - Q1
+    Lower Bound = Q1 - s * IQR
+    Upper Bound = Q3 + s * IQR
+    """
+    cols = cols if cols else df.columns.tolist()
+
+    df_ = df.copy()
+    q1 = df_[cols].quantile(0.25)
+    q3 = df_[cols].quantile(0.75)
+    iqr = q3 - q1
+
+    iqr_lower = q1 - s * iqr
+    iqr_upper = q3 + s * iqr
+
+    outliers = (
+        (df_ < iqr_lower) | (df_ > iqr_upper)
+    ).any(axis=1)
+
+    n_out = outliers.sum()
+    total = len(outliers)
+
+    print(f'N. of outliers: {n_out} ({round(n_out * 100 / total, 3)}%)')
+    return df_[~outliers].reset_index(drop=True)
+
+
 def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
+    """
+    Perform KMeans clustering for a range of cluster numbers and compute
+    the sum of squared errors (SSE) and silhouette scores for each k in k_values.
+
+    Returns a dictionary with SSE and silhouette scores."""
     sse = []
     silhouettes = []
     for k in k_values:
@@ -322,3 +358,35 @@ def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
         'silhouettes': silhouettes,
     }
 
+
+# metrics
+
+def cluster_intensity(x: int | float | str, scale: str='log') -> float:
+    """
+    Calculate the intensity of a cluster based on the given scale.
+    
+    If linear scale is chosen, returns x as is, that is, I(x) = x.
+    If logarithmic scale is chosen, returns I(x) = log(1 + x).
+    """
+    try:
+        x = int(x)
+    except ValueError:
+        raise TypeError('x must be a number: int, float or numeric string')
+
+    if scale not in ('linear', 'log'):
+        raise TypeError("scale must be 'linear' or 'log' (logarithmic)")
+
+    return x if scale == 'linear' else log1p(x)
+
+
+def cluster_vol(cf: int, c0: int, d: int=7, scale: str='log') -> float:
+    """
+    Calculate the cluster volatility between two clusters cf and c0 over a
+    specified duration d, using the given scale for intensity calculation.
+
+    If linear scale is chosen, considers x as is, that is, I(x) = x.
+    If logarithmic scale is chosen, considers I(x) = log(1 + x).
+    """
+    return (1/d) * abs(
+        cluster_intensity(cf, scale) - cluster_intensity(c0, scale)
+    )

@@ -358,3 +358,35 @@ def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
         'silhouettes': silhouettes,
     }
 
+
+# metrics
+
+def cluster_intensity(x: int | float | str, scale: str='log') -> float:
+    """
+    Calculate the intensity of a cluster based on the given scale.
+    
+    If linear scale is chosen, returns x as is, that is, I(x) = x.
+    If logarithmic scale is chosen, returns I(x) = log(1 + x).
+    """
+    try:
+        x = int(x)
+    except ValueError:
+        raise TypeError('x must be a number: int, float or numeric string')
+
+    if scale not in ('linear', 'log'):
+        raise TypeError("scale must be 'linear' or 'log' (logarithmic)")
+
+    return x if scale == 'linear' else log1p(x)
+
+
+def cluster_vol(cf: int, c0: int, d: int=7, scale: str='log') -> float:
+    """
+    Calculate the cluster volatility between two clusters cf and c0 over a
+    specified duration d, using the given scale for intensity calculation.
+
+    If linear scale is chosen, considers x as is, that is, I(x) = x.
+    If logarithmic scale is chosen, considers I(x) = log(1 + x).
+    """
+    return (1/d) * abs(
+        cluster_intensity(cf, scale) - cluster_intensity(c0, scale)
+    )

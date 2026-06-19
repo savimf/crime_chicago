@@ -181,7 +181,7 @@ def grp_features(
     if grp_by == 'district':
         grp_df = df_\
             .query('crime_group == @crime_group')\
-            .groupby([grp_by, 'date']).agg(
+            .groupby([grp_by, 'ddate']).agg(
                 count=('id', 'count'),
                 domestic_rate=('domestic', 'mean'),
                 arrest_rate=('arrest', 'mean'),
@@ -195,16 +195,16 @@ def grp_features(
             )\
             .reset_index()
 
-        grp_df.set_index('date', inplace=True)
+        grp_df.set_index('ddate', inplace=True)
     elif grp_by == 'community_area':
         grp_df = df_\
             .query('crime_group == @crime_group')\
-            .groupby([grp_by, 'date']).agg(
+            .groupby([grp_by, 'ddate']).agg(
                 total=('id', 'count')
             )\
             .reset_index()
 
-        grp_df.set_index('date', inplace=True)
+        grp_df.set_index('ddate', inplace=True)
     return grp_df
 
 
@@ -241,7 +241,7 @@ def rolling_grp(
             }).reset_index().copy()
 
         rolling.columns = [
-            'district', 'date',
+            'district', 'ddate',
             f'{prefix}_RollAvg{window}',
             f'{prefix}_RollDRate{window}',
             f'{prefix}_RollARate{window}',
@@ -265,10 +265,13 @@ def rolling_grp(
             .reset_index().copy()
         
         rolling.columns = [
-            'community_area', 'date',
+            'community_area', 'ddate',
             f'{prefix}_RollSum{window}'
         ]
 
+    rolling['ddate'] = pd.to_datetime(rolling['ddate'])
+    rolling = rolling.set_index('ddate')
+    rolling = rolling.sort_index()
     return rolling
 
 

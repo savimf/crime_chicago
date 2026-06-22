@@ -6,6 +6,7 @@ from math import radians, cos, sin, asin, sqrt, log1p
 from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
 from sklearn.cluster import KMeans
+from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score
 import params_cfg as pc
 
@@ -164,6 +165,36 @@ def run_log_model(df: pd.DataFrame, x_col: str, y_col: str):
     X = sm.add_constant(X)
     lr = sm.OLS(y, X).fit()
     return lr
+
+
+def hopkins(X: np.ndarray, m: int=None) -> float:
+    if m is None:
+        m = int(.1 * len(X))
+
+    d = X.shape[1]
+
+    # sample m observations
+    idx = np.random.choice(len(X), m, replace=False)
+    X_sample = X[idx]
+
+    # generate random points
+    mins = X.min(axis=0)
+    maxs = X.max(axis=0)
+
+    X_random = np.random.uniform(mins, maxs, (m, d))
+
+    nbrs = NearestNeighbors(n_neighbors=2).fit(X)
+
+    # distances from sampled observations to nearest neighbor
+    w_dist, _ = nbrs.kneighbors(X_sample)
+    w = w_dist[:, 1]
+
+    # distances from random points to nearest observation
+    u_dist, _ = nbrs.kneighbors(X_random, n_neighbors=1)
+    u = u_dist[:, 0]
+
+    H = np.sum(u) / (np.sum(u) + np.sum(w))
+    return H
 
 
 def grp_features(

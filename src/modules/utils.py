@@ -7,7 +7,7 @@ from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 import params_cfg as pc
 
 brz_path = pc.BRZ_PATH
@@ -372,7 +372,7 @@ def rm_outliers(df: pd.DataFrame, cols: list=[], s: float=1.5) -> pd.DataFrame:
     return df_[~outliers].reset_index(drop=True)
 
 
-def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
+def KMeans_features(x: np.ndarray, k_values: list | tuple, seed: int=1) -> dict:
     """
     Perform KMeans clustering for a range of cluster numbers and compute
     the sum of squared errors (SSE) and silhouette scores for each k in k_values.
@@ -380,16 +380,26 @@ def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
     Returns a dictionary with SSE and silhouette scores."""
     sse = []
     silhouettes = []
+    ch = []
+    db = []
     for k in k_values:
         print(f'Initiating {k=}')
-        kmeans = KMeans(n_clusters=k, random_state=1, n_init='auto')
+        kmeans = KMeans(n_clusters=k, random_state=seed, n_init='auto')
         kmeans.fit(x)
         sse.append(kmeans.inertia_)
         silhouettes.append(silhouette_score(x, kmeans.labels_))
+        ch.append(
+            calinski_harabasz_score(x, kmeans.predict(x))
+        )
+        db.append(
+            davies_bouldin_score(x, kmeans.predict(x))
+        )
 
     return {
         'sse': sse,
         'silhouettes': silhouettes,
+        'ch': ch,
+        'db': db
     }
 
 

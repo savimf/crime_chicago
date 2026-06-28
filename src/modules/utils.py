@@ -7,6 +7,7 @@ from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 import params_cfg as pc
 
@@ -372,12 +373,19 @@ def rm_outliers(df: pd.DataFrame, cols: list=[], s: float=1.5) -> pd.DataFrame:
     return df_[~outliers].reset_index(drop=True)
 
 
-def KMeans_features(x: np.ndarray, k_values: list | tuple, seed: int=1) -> dict:
+def KMeans_features(
+        x: np.ndarray,
+        x_latest: np.ndarray,
+        k_values: list | tuple,
+        seed: int=1
+    ) -> dict:
     """
     Perform KMeans clustering for a range of cluster numbers and compute
-    the sum of squared errors (SSE) and silhouette scores for each k in k_values.
+    the sum of squared errors (SSE), silhouette, Calinski-Harabasz, and
+    Davies-Bouldin scores for each k in k_values.
 
-    Returns a dictionary with SSE and silhouette scores."""
+    Returns a dictionary with the scores.
+    """
     sse = []
     silhouettes = []
     ch = []
@@ -386,13 +394,14 @@ def KMeans_features(x: np.ndarray, k_values: list | tuple, seed: int=1) -> dict:
         print(f'Initiating {k=}')
         kmeans = KMeans(n_clusters=k, random_state=seed, n_init='auto')
         kmeans.fit(x)
+        labels = kmeans.predict(x_latest)
         sse.append(kmeans.inertia_)
-        silhouettes.append(silhouette_score(x, kmeans.labels_))
+        silhouettes.append(silhouette_score(x_latest, labels))
         ch.append(
-            calinski_harabasz_score(x, kmeans.predict(x))
+            calinski_harabasz_score(x_latest, labels)
         )
         db.append(
-            davies_bouldin_score(x, kmeans.predict(x))
+            davies_bouldin_score(x_latest, labels)
         )
 
     return {
@@ -401,6 +410,102 @@ def KMeans_features(x: np.ndarray, k_values: list | tuple, seed: int=1) -> dict:
         'ch': ch,
         'db': db
     }
+
+
+def fwd_feature_selection(
+    df: pd.DataFrame,
+    df_latest: np.ndarray,
+    candidate_features: list,
+    k_values: list=[2, 3, 4, 5],
+    seed: int=1
+) -> pd.DataFrame:
+    """Forward feature selection for K-Means using multiple validation metrics.
+    """
+    remaining = candidate_features.copy()
+    selected = []
+    history = []
+    detailed = []
+    step = 1
+
+    while len(remaining) > 0:
+        candidate_summary = []
+        for feature in remaining:
+            current_features = selected + [feature]
+            X = df[current_features].copy()
+            X = StandardScaler().fit_transform(X)
+
+            sil_scores, ch_scores, db_scores = [], [], []
+
+            for k in k_values:
+                kmeans = KMeans(
+                    n_clusters=k,
+                    random_state=seed,
+                    n_init=50
+                )
+                kmeans.fit(X)
+                X_latest = df_latest[current_features].copy()
+                X_latest = StandardScaler().fit_transform(X_latest)
+                labels = kmeans.predict(X_latest)
+
+                sil = silhouette_score(X_latest, labels)
+                ch = calinski_harabasz_score(X_latest, labels)
+                db = davies_bouldin_score(X_latest, labels)
+
+                sil_scores.append(sil)
+                ch_scores.append(ch)
+                db_scores.append(db)
+
+                detailed.append({
+                    'step': step,
+                    'candidate': feature,
+                    'features': current_features,
+                    'k': k,
+                    'silhouette': sil,
+                    'calinski': ch,
+                    'davies': db
+                })
+            
+            candidate_summary.append({
+                'candidate': feature,
+                'features': current_features,
+                'silhouette_mean': np.mean(sil_scores),
+                'calinski_mean': np.mean(ch_scores),
+                'davies_mean': np.mean(db_scores)
+            })
+        
+        summary = pd.DataFrame(candidate_summary)
+
+        # composite ranking
+        summary['rank_sil'] = summary['silhouette_mean'].rank(ascending=False)
+        summary['rank_ch'] = summary['calinski_mean'].rank(ascending=False)
+        summary['rank_db'] = summary['davies_mean'].rank(ascending=False)
+
+        summary['overall_rank'] = (
+            summary['rank_sil']
+            + summary['rank_ch']
+            + summary['rank_db']
+        )
+
+        best = summary.sort_values('overall_rank').iloc[0]
+
+        selected.append(best['candidate'])
+        remaining.remove(best['candidate'])
+        history.append(best)
+
+        print('-' * 30)
+        print(f'STEP {step}')
+        print(f"Added feature: {best['candidate']}")
+        print(f'Current set: {selected}')
+        print(f"Mean Silhouette: {best['silhouette_mean']:.3f}")
+        print(f"Mean Calinski-Harabasz: {best['calinski_mean']:.3f}")
+        print(f"Mean Davies-Bouldin: {best['davies_mean']:.3f}")
+        print('-' * 30)
+
+        step += 1
+    
+    history = pd.DataFrame(history)
+    detailed = pd.DataFrame(detailed)
+    return selected, history, detailed
 
 
 # metrics

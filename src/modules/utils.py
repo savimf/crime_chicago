@@ -9,6 +9,7 @@ from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from itertools import combinations
 import params_cfg as pc
 
 brz_path = pc.BRZ_PATH
@@ -506,6 +507,94 @@ def fwd_feature_selection(
     history = pd.DataFrame(history)
     detailed = pd.DataFrame(detailed)
     return selected, history, detailed
+
+
+def exhaustive_feature_search(
+    df: pd.DataFrame,
+    df_latest: pd.DataFrame,
+    candidate_features: list,
+    k_values: list=[2, 3, 4, 5],
+    seed: int=1,
+    n_init: int=50,
+    max_features: int=None
+) -> pd.DataFrame:
+    results = []
+    n = len(candidate_features)
+
+    if max_features is None:
+        max_features = n
+
+    for r in range(1, max_features + 1):
+        for subset in combinations(candidate_features, r):
+            X = StandardScaler().fit_transform(df[list(subset)])
+            df_latest_ = df_latest[list(subset)].copy()
+            X_latest = StandardScaler().fit_transform(df_latest_)
+
+            subset_results = []
+
+            for k in k_values:
+                kmeans = KMeans(
+                    n_clusters=k,
+                    random_state=seed,
+                    n_init=n_init
+                )
+                kmeans.fit(X)
+                labels = kmeans.predict(X_latest)
+                sil = silhouette_score(X_latest, labels)
+                ch = calinski_harabasz_score(X_latest, labels)
+                db = davies_bouldin_score(X_latest, labels)
+
+                subset_results.append({
+                    'k': k,
+                    'silhouette': sil,
+                    'calinski': ch,
+                    'davies': db
+                })
+            subset_results = pd.DataFrame(subset_results)
+
+            subset_results['rank_sil'] = (
+                subset_results['silhouette']
+                .rank(ascending=False)
+            )
+            subset_results['rank_ch'] = (
+                subset_results['calinski']
+                .rank(ascending=False)
+            )
+            subset_results['rank_db'] = (
+                subset_results['davies']
+                .rank(ascending=False)
+            )
+
+            subset_results['score'] = (
+                subset_results['rank_sil']
+                + subset_results['rank_ch']
+                + subset_results['rank_db']
+            )
+
+            best = subset_results.sort_values('score').iloc[0]
+
+            results.append({
+                'features': subset,
+                'n_features': len(subset),
+                'best_k': int(best['k']),
+                'silhouette': best['silhouette'],
+                'calinski': best['calinski'],
+                'davies': best['davies'],
+                'score': best['score']
+            })
+    results = pd.DataFrame(results)
+
+    results = results.sort_values(
+        by=[
+            'score',
+            'silhouette',
+            'calinski',
+            'davies'
+        ],
+        ascending=[True, False, False, True]
+    )
+    return results.reset_index(drop=True)
+
 
 
 # metrics

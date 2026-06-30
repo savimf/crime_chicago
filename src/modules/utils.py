@@ -433,7 +433,8 @@ def fwd_feature_selection(
         for feature in remaining:
             current_features = selected + [feature]
             X = df[current_features].copy()
-            X = StandardScaler().fit_transform(X)
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
 
             sil_scores, ch_scores, db_scores = [], [], []
 
@@ -445,7 +446,7 @@ def fwd_feature_selection(
                 )
                 kmeans.fit(X)
                 X_latest = df_latest[current_features].copy()
-                X_latest = StandardScaler().fit_transform(X_latest)
+                X_latest = scaler.transform(X_latest)
                 labels = kmeans.predict(X_latest)
 
                 sil = silhouette_score(X_latest, labels)
@@ -526,9 +527,10 @@ def exhaustive_feature_search(
 
     for r in range(1, max_features + 1):
         for subset in combinations(candidate_features, r):
-            X = StandardScaler().fit_transform(df[list(subset)])
+            scaler = StandardScaler()
+            X = scaler.fit_transform(df[list(subset)])
             df_latest_ = df_latest[list(subset)].copy()
-            X_latest = StandardScaler().fit_transform(df_latest_)
+            X_latest = scaler.transform(df_latest_)
 
             subset_results = []
 

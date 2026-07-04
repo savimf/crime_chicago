@@ -657,3 +657,24 @@ def cluster_vol(cf: int, c0: int, d: int=7, scale: str='log') -> float:
     return (1/d) * abs(
         cluster_intensity(cf, scale) - cluster_intensity(c0, scale)
     )
+
+
+def kld(p: np.ndarray, q: np.ndarray, eps: float=1e-10) -> float:
+    """
+    Calculate the Kullback-Leibler Divergence (KLD) between two probability distributions p and q.
+    The KLD measures how one probability distribution diverges from a second, expected probability distribution.
+
+    Returns the KLD value.
+    """
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+
+    # Ensure that both distributions are valid probability distributions
+    if not (np.isclose(p.sum(), 1) and np.isclose(q.sum(), 1)):
+        raise ValueError("Both p and q must be valid probability distributions that sum to 1.")
+
+    # Avoid division by zero and log of zero by adding a small epsilon
+    p = np.clip(p, eps, 1)
+    q = np.clip(q, eps, 1)
+
+    return np.sum(p * np.log(p / q))

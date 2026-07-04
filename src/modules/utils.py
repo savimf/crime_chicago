@@ -598,8 +598,35 @@ def exhaustive_feature_search(
     return results.reset_index(drop=True)
 
 
-
 # metrics
+def transition_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate the transition matrix for clusters in a DataFrame.
+    The transition matrix shows the probabilities of moving from one cluster to another
+    between consecutive time periods.
+
+    Returns a DataFrame representing the transition matrix.
+    """
+    df_ = df.copy()
+
+    df_ = df_.sort_values(['district', 'ddate'])
+
+    # capture consecutive cluster transitions for each district
+    df_['next_cluster'] = df_.groupby('district')['cluster'].shift(-1)
+
+    # filtering out last entries (no next state)
+    transitions = df_.dropna(subset=['next_cluster']).reset_index(drop=True)
+
+    # count transitions
+    counts = pd.crosstab(
+        transitions['cluster'],
+        transitions['next_cluster']
+    )
+
+    # converting to probabilities
+    transition_matrix = counts.div(counts.sum(axis=1), axis=0)
+    return transition_matrix
+
 
 def cluster_intensity(x: int | float | str, scale: str='log') -> float:
     """

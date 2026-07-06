@@ -7,7 +7,9 @@ from scipy.stats import shapiro, ttest_ind, mannwhitneyu, chi2_contingency
 import statsmodels.api as sm
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from itertools import combinations
 import params_cfg as pc
 
 brz_path = pc.BRZ_PATH
@@ -372,28 +374,259 @@ def rm_outliers(df: pd.DataFrame, cols: list=[], s: float=1.5) -> pd.DataFrame:
     return df_[~outliers].reset_index(drop=True)
 
 
-def KMeans_features(x: np.ndarray, k_values: list | tuple) -> dict:
+def KMeans_features(
+        x: np.ndarray,
+        x_latest: np.ndarray,
+        k_values: list | tuple,
+        seed: int=1
+    ) -> dict:
     """
     Perform KMeans clustering for a range of cluster numbers and compute
-    the sum of squared errors (SSE) and silhouette scores for each k in k_values.
+    the sum of squared errors (SSE), silhouette, Calinski-Harabasz, and
+    Davies-Bouldin scores for each k in k_values.
 
-    Returns a dictionary with SSE and silhouette scores."""
+    Returns a dictionary with the scores.
+    """
     sse = []
     silhouettes = []
+    ch = []
+    db = []
     for k in k_values:
         print(f'Initiating {k=}')
-        kmeans = KMeans(n_clusters=k, random_state=1, n_init='auto')
+        kmeans = KMeans(n_clusters=k, random_state=seed, n_init='auto')
         kmeans.fit(x)
+        labels = kmeans.predict(x_latest)
         sse.append(kmeans.inertia_)
-        silhouettes.append(silhouette_score(x, kmeans.labels_))
+        silhouettes.append(silhouette_score(x_latest, labels))
+        ch.append(
+            calinski_harabasz_score(x_latest, labels)
+        )
+        db.append(
+            davies_bouldin_score(x_latest, labels)
+        )
 
     return {
         'sse': sse,
         'silhouettes': silhouettes,
+        'ch': ch,
+        'db': db
     }
 
 
+def fwd_feature_selection(
+    df: pd.DataFrame,
+    df_latest: np.ndarray,
+    candidate_features: list,
+    k_values: list=[2, 3, 4, 5],
+    seed: int=1
+) -> pd.DataFrame:
+    """Forward feature selection for K-Means using multiple validation metrics.
+    """
+    remaining = candidate_features.copy()
+    selected = []
+    history = []
+    detailed = []
+    step = 1
+
+    while len(remaining) > 0:
+        candidate_summary = []
+        for feature in remaining:
+            current_features = selected + [feature]
+            X = df[current_features].copy()
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
+
+            sil_scores, ch_scores, db_scores = [], [], []
+
+            for k in k_values:
+                kmeans = KMeans(
+                    n_clusters=k,
+                    random_state=seed,
+                    n_init=50
+                )
+                kmeans.fit(X)
+                X_latest = df_latest[current_features].copy()
+                X_latest = scaler.transform(X_latest)
+                labels = kmeans.predict(X_latest)
+
+                sil = silhouette_score(X_latest, labels)
+                ch = calinski_harabasz_score(X_latest, labels)
+                db = davies_bouldin_score(X_latest, labels)
+
+                sil_scores.append(sil)
+                ch_scores.append(ch)
+                db_scores.append(db)
+
+                detailed.append({
+                    'step': step,
+                    'candidate': feature,
+                    'features': current_features,
+                    'k': k,
+                    'silhouette': sil,
+                    'calinski': ch,
+                    'davies': db
+                })
+            
+            candidate_summary.append({
+                'candidate': feature,
+                'features': current_features,
+                'silhouette_mean': np.mean(sil_scores),
+                'calinski_mean': np.mean(ch_scores),
+                'davies_mean': np.mean(db_scores)
+            })
+        
+        summary = pd.DataFrame(candidate_summary)
+
+        # composite ranking
+        summary['rank_sil'] = summary['silhouette_mean'].rank(ascending=False)
+        summary['rank_ch'] = summary['calinski_mean'].rank(ascending=False)
+        summary['rank_db'] = summary['davies_mean'].rank(ascending=False)
+
+        summary['overall_rank'] = (
+            summary['rank_sil']
+            + summary['rank_ch']
+            + summary['rank_db']
+        )
+
+        best = summary.sort_values('overall_rank').iloc[0]
+
+        selected.append(best['candidate'])
+        remaining.remove(best['candidate'])
+        history.append(best)
+
+        print('-' * 30)
+        print(f'STEP {step}')
+        print(f"Added feature: {best['candidate']}")
+        print(f'Current set: {selected}')
+        print(f"Mean Silhouette: {best['silhouette_mean']:.3f}")
+        print(f"Mean Calinski-Harabasz: {best['calinski_mean']:.3f}")
+        print(f"Mean Davies-Bouldin: {best['davies_mean']:.3f}")
+        print('-' * 30)
+
+        step += 1
+    
+    history = pd.DataFrame(history)
+    detailed = pd.DataFrame(detailed)
+    return selected, history, detailed
+
+
+def exhaustive_feature_search(
+    df: pd.DataFrame,
+    df_latest: pd.DataFrame,
+    candidate_features: list,
+    k_values: list=[2, 3, 4, 5],
+    seed: int=1,
+    n_init: int=50,
+    max_features: int=None
+) -> pd.DataFrame:
+    results = []
+    n = len(candidate_features)
+
+    if max_features is None:
+        max_features = n
+
+    for r in range(1, max_features + 1):
+        for subset in combinations(candidate_features, r):
+            scaler = StandardScaler()
+            X = scaler.fit_transform(df[list(subset)])
+            df_latest_ = df_latest[list(subset)].copy()
+            X_latest = scaler.transform(df_latest_)
+
+            subset_results = []
+
+            for k in k_values:
+                kmeans = KMeans(
+                    n_clusters=k,
+                    random_state=seed,
+                    n_init=n_init
+                )
+                kmeans.fit(X)
+                labels = kmeans.predict(X_latest)
+                sil = silhouette_score(X_latest, labels)
+                ch = calinski_harabasz_score(X_latest, labels)
+                db = davies_bouldin_score(X_latest, labels)
+
+                subset_results.append({
+                    'k': k,
+                    'silhouette': sil,
+                    'calinski': ch,
+                    'davies': db
+                })
+            subset_results = pd.DataFrame(subset_results)
+
+            subset_results['rank_sil'] = (
+                subset_results['silhouette']
+                .rank(ascending=False)
+            )
+            subset_results['rank_ch'] = (
+                subset_results['calinski']
+                .rank(ascending=False)
+            )
+            subset_results['rank_db'] = (
+                subset_results['davies']
+                .rank(ascending=False)
+            )
+
+            subset_results['score'] = (
+                subset_results['rank_sil']
+                + subset_results['rank_ch']
+                + subset_results['rank_db']
+            )
+
+            best = subset_results.sort_values('score').iloc[0]
+
+            results.append({
+                'features': subset,
+                'n_features': len(subset),
+                'best_k': int(best['k']),
+                'silhouette': best['silhouette'],
+                'calinski': best['calinski'],
+                'davies': best['davies'],
+                'score': best['score']
+            })
+    results = pd.DataFrame(results)
+
+    results = results.sort_values(
+        by=[
+            'score',
+            'silhouette',
+            'calinski',
+            'davies'
+        ],
+        ascending=[True, False, False, True]
+    )
+    return results.reset_index(drop=True)
+
+
 # metrics
+def transition_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate the transition matrix for clusters in a DataFrame.
+    The transition matrix shows the probabilities of moving from one cluster to another
+    between consecutive time periods.
+
+    Returns a DataFrame representing the transition matrix.
+    """
+    df_ = df.copy()
+
+    df_ = df_.sort_values(['district', 'ddate'])
+
+    # capture consecutive cluster transitions for each district
+    df_['next_cluster'] = df_.groupby('district')['cluster'].shift(-1)
+
+    # filtering out last entries (no next state)
+    transitions = df_.dropna(subset=['next_cluster']).reset_index(drop=True)
+
+    # count transitions
+    counts = pd.crosstab(
+        transitions['cluster'],
+        transitions['next_cluster']
+    )
+
+    # converting to probabilities
+    transition_matrix = counts.div(counts.sum(axis=1), axis=0)
+    return transition_matrix
+
 
 def cluster_intensity(x: int | float | str, scale: str='log') -> float:
     """
@@ -424,3 +657,24 @@ def cluster_vol(cf: int, c0: int, d: int=7, scale: str='log') -> float:
     return (1/d) * abs(
         cluster_intensity(cf, scale) - cluster_intensity(c0, scale)
     )
+
+
+def kld(p: np.ndarray, q: np.ndarray, eps: float=1e-10) -> float:
+    """
+    Calculate the Kullback-Leibler Divergence (KLD) between two probability distributions p and q.
+    The KLD measures how one probability distribution diverges from a second, expected probability distribution.
+
+    Returns the KLD value.
+    """
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+
+    # Ensure that both distributions are valid probability distributions
+    if not (np.isclose(p.sum(), 1) and np.isclose(q.sum(), 1)):
+        raise ValueError("Both p and q must be valid probability distributions that sum to 1.")
+
+    # Avoid division by zero and log of zero by adding a small epsilon
+    p = np.clip(p, eps, 1)
+    q = np.clip(q, eps, 1)
+
+    return np.sum(p * np.log(p / q))

@@ -6,7 +6,7 @@ sns.set_theme(
     style='white',
     font='Serif',
     rc={
-    'figure.figsize': [10, 5],
+    'figure.figsize': [14, 5],
     'figure.facecolor': 'white',
     'figure.titlesize': 12,
     'axes.axisbelow': False,
